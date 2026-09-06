@@ -128,10 +128,6 @@ for message in st.session_state.messages:
 prompt = st.chat_input("Ask anything about your documents…")
 
 if prompt:
-    if not rag.is_configured:
-        st.error("Azure OpenAI is not configured. Copy .env.example to .env and add your credentials.")
-        st.stop()
-
     if not st.session_state.messages:
         db.rename_chat(st.session_state.chat_id, prompt[:60])
 
