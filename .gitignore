@@ -3,6 +3,15 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+*.pyc
+.env*
+.vscode
+chat_history.db
+data/*
+!data/.gitkeep
+chroma_db/*
+!chroma_db/.gitkeep
+
 # C extensions
 *.so
 
