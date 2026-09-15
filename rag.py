@@ -1,10 +1,10 @@
 import os
+import streamlit as st
 import re
 from pathlib import Path
 from typing import List, Dict
 
 import chromadb
-import requests
 import json
 from google import genai
 from google.genai import types
@@ -31,7 +31,7 @@ class RAGEngine:
         self.top_k = int(os.getenv("RAG_TOP_K", "5"))
         self.chunk_size = int(os.getenv("CHUNK_SIZE", "900"))
         self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "150"))
-        self.gemini_embedding_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+        self.gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
 
         self.is_configured = all([
             self.endpoint,
@@ -54,13 +54,12 @@ class RAGEngine:
             metadata={"hnsw:space": "cosine"},
         )
 
-    def _embed(self, texts: List[str]) -> List[List[float]]:
+    def _embed(self, texts: List[str] | str) -> List[List[float]]:
         embeddings = []
         for text in texts:
-            result = self.gemini_embedding_client.models.embed_content(
+            result = self.gemini_client.models.embed_content(
                         model="gemini-embedding-001",
-                        contents=text,
-                        config=types.EmbedContentConfig(task_type="SEMANTIC_SIMILARITY")
+                        contents=text
                     )
             embeddings.append(result.embeddings[0].values)
         return embeddings
@@ -160,24 +159,64 @@ class RAGEngine:
         return sources
 
     def answer(self, question: str, history: List[Dict]) -> Dict:
-        sources = self.retrieve(question)
+        context: str | None = None
+        if st.session_state.authenticated:
+            sources = self.retrieve(question)
 
-        context = "\n\n".join(
-            f"[Source {i+1} | {s['file']} | chunk {s['chunk']}]\n{s['text']}"
-            for i, s in enumerate(sources)
-        )
+            context = "\n\n".join(
+                f"[Source {i+1} | {s['file']} | chunk {s['chunk']}]\n{s['text']}"
+                for i, s in enumerate(sources)
+            )
 
-        system_prompt = """You are a helpful RAG assistant.
+            system_prompt = """You are a helpful RAG assistant.
+                Answer the user's question using the supplied document context.
+                Rules:
+                1. Prefer the document context over general knowledge.
+                2. If the answer is not supported by the context, clearly say that the documents do not contain enough information.
+                3. Do not invent facts, citations, numbers, or document content.
+                4. Give concise, useful answers.
+                5. When useful, mention the source filename and chunk naturally.
+                6. If the user's query is greetings, farwell or friendly talk means you can response in a friendly direct answer without using the document context.
+                7. Respond like a human, not like an AI model. Avoid phrases like "As an AI language model" or "As an AI assistant".
+                8. Generate a response in JSON format with the following keys:
+                    - "answer": The answer to the user's question.
+                    - "isSourceUsed": true if the answer is based on the document context, false otherwise.
+                Note: Response must be valid JSON. Do not include any text outside the JSON object.
 
-Answer the user's question using the supplied document context.
-Rules:
-1. Prefer the document context over general knowledge.
-2. If the answer is not supported by the context, clearly say that the documents do not contain enough information.
-3. Do not invent facts, citations, numbers, or document content.
-4. Give concise, useful answers.
-5. When useful, mention the source filename and chunk naturally.
-"""
-
+                Sample response:
+                1. If the answer is based on the document context:
+                {
+                    "answer": "The document context provides information about the topic.",
+                    "isSourceUsed": true
+                }
+                2. If the answer is not based on the document context:
+                {
+                    "answer": "I don't have information about that in the documents.",
+                    "isSourceUsed": false
+                }
+                3. If the user's query is greetings, farwell or friendly talk:
+                {
+                    "answer": "Respective greeting/farwell response",
+                    "isSourceUsed": false
+                }
+                """
+        else:
+            system_prompt = """
+                You are a helpful RAG assistant. Answer the user's question using the supplied document context.
+                Rules:
+                    1. Give brief, formatted and useful answers.
+                    2. Respond like a human, not like an AI model. Avoid phrases like "As an AI language model" or "As an AI assistant".
+                    3. While answering user's query other than greeting / farwell, generate response with atleast 100 words.
+                    4. Generate a response in JSON format with the following keys:
+                        - "answer": The answer to the user's question.
+                        - "isSourceUsed": true if the answer is based on the document context in , false otherwise.
+                Note: Response must be valid JSON. Do not include any text outside the JSON object.
+                Sample Response:
+                    {
+                        "answer": <GENERATED_RESPONSE>,
+                        "isSourceUsed": true / false
+                    }
+            """
         messages = [{"role": "system", "content": system_prompt}]
 
         # Keep only recent conversational turns.
@@ -187,35 +226,43 @@ Rules:
                 "content": msg["content"],
             })
 
-        messages.append({
-            "role": "user",
-            "content": f"""Document context:
-
+        if context is None:
+            messages.append({
+                "role": "user",
+                "content": f"""Question:{question}"""
+            })
+        else:
+            messages.append({
+                "role": "user",
+                "content": f"""Document context:
 {context if context else "(No relevant documents found.)"}
-
 Question:
-{question}""",
-        })
+{question}""",})
+
+        final_message = ""
+        for message in messages:
+            final_message += f"{message.get('role').__str__()}: {message.get('content').__str__()}"
 
         # First API call with reasoning
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.open_router_chat_completion_api_key}",
-                "Content-Type": "application/json",
-            },
-            data=json.dumps({
-                "model": "minimax/minimax-m3:free",
-                "messages": messages,
-                "reasoning": {"enabled": False}
-            })
+        response = self.gemini_client.models.generate_content(
+            model="gemma-4-26b-a4b-it",
+            contents=final_message,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                response_mime_type="application/json"
+            )
         )
 
         # Extract the assistant message with reasoning_details
-        response = response.json()
-        response = response['choices'][0]['message']
+        final_response = json.loads(response.text)
 
-        return {
-            "answer": response.get('content'),
-            "sources": sources,
-        }
+        if final_response.get("isSourceUsed") is False:
+            return {
+                    "answer": final_response.get("answer"),
+                    "sources": [],
+                }
+        else:
+            return {
+                    "answer": final_response.get("answer"),
+                    "sources": sources,
+                }
