@@ -212,7 +212,7 @@ class UserDB:
 
     def get_user_session(self, session_token: str) -> str | None:
         row = self.conn.execute(
-            "SELET user_id FROM user_sessions WHERE session_token=?",
+            "SELECT user_id FROM user_sessions WHERE session_token=?",
             (session_token),
         ).fetchone()
 
