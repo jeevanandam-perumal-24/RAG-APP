@@ -206,14 +206,14 @@ class UserDB:
     def delete_user_session(self, session_token: str):
         self.conn.execute(
             "DELETE FROM user_sessions WHERE session_token=?",
-            (session_token),
+            (session_token,),
         )
         self.conn.commit()
 
     def get_user_session(self, session_token: str) -> str | None:
         row = self.conn.execute(
             "SELECT user_id FROM user_sessions WHERE session_token=?",
-            (session_token),
+            (session_token,),
         ).fetchone()
 
         value = dict(row) if row else None
