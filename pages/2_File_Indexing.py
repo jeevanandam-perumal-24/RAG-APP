@@ -25,11 +25,13 @@ st.set_page_config(page_title="Document Indexer", page_icon="📄", layout="wide
 st.markdown(page_style, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown(f"<div class='no-cursor' style='font-weight: bold; color:#88C0D0;'>Total Indexed chunks:</div><div class='no-cursor' style='color: #ECEFF4'>{rag.collection.count()}</div>", unsafe_allow_html=True)
+    result = rag.collection.get(where={"user_id": st.session_state.user_id})
+    st.markdown(f"<div class='no-cursor' style='font-weight: bold; color:#88C0D0;'>Total Indexed chunks:</div><div class='no-cursor' style='color: #ECEFF4'>{len(result["ids"])}</div>", unsafe_allow_html=True)
 
 st.markdown('<div class="files no-cursor" style="font-weight: bold; color: #88C0D0;">📜Indexed documents</div>', unsafe_allow_html=True)
 
 if st.session_state.authenticated:
+    user_files = rag.get_user_file_names()
     folder_path = r"./data"
     files = [
         file for file in os.listdir(folder_path)
@@ -37,7 +39,7 @@ if st.session_state.authenticated:
     ]
     file_iterator = 0
     for file in files:
-        if file.startswith("."):
+        if file.startswith(".") or file not in user_files:
             continue
         else:
             file_iterator += 1

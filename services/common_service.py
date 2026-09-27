@@ -4,8 +4,8 @@ import streamlit as st
 
 from cryptography.fernet import Fernet
 from services.cookie_handler import CookieHandler
-from db import ChatDB, UserDB
-from rag import RAGEngine
+from services.db import ChatDB, UserDB
+from services.rag import RAGEngine
 from datetime import datetime, timedelta
 
 @st.cache_resource
@@ -35,19 +35,32 @@ def decrypt_password(encrypted_password: str):
     return encryption.decrypt(encrypted_password).decode()
 
 def add_user_session(user_id: str):
-    expiry = datetime.now() + timedelta(hours=1)
-    session_token = secrets.token_urlsafe(32)
-    cookie_handler.set_cookie(user_session_cookie_key, session_token, expiry)
-    user_db.add_user_session(user_id, session_token, expiry)
+    try:
+        expiry = datetime.now() + timedelta(hours=1)
+        session_token = secrets.token_urlsafe(32)
+        cookie_handler.set_cookie(user_session_cookie_key, session_token, expiry)
+        user_db.add_user_session(user_id, session_token, expiry)
+    except Exception as e:
+        print(f"Error occurred while adding session: {e}")
+        return
 
-def get_user_session() -> str:
-    token = cookie_handler.get_cookie(user_session_cookie_key)
-    if token:
-        return user_db.get_user_session(token)
-    else:
+def get_user_session() -> str | None:
+    try:
+        token = cookie_handler.get_cookie(user_session_cookie_key)
+        if token:
+            return user_db.get_user_session(token)
+        else:
+            print("No session token found in cookies.")
+            return None
+    except Exception as e:
+        print(f"Error retrieving user session: {e}")
         return None
 
 def clear_session():
-    token = cookie_handler.get_cookie(user_session_cookie_key)
-    cookie_handler.clear_cookie(user_session_cookie_key)
-    user_db.delete_user_session(token)
+    try:
+        token = cookie_handler.get_cookie(user_session_cookie_key)
+        cookie_handler.clear_cookie(user_session_cookie_key)
+        user_db.delete_user_session(token)
+    except Exception as e:
+        print(f"Error clearing session: {e}")
+        return

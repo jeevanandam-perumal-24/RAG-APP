@@ -26,10 +26,41 @@ def login_message_dialog(is_login_succes: bool = False, is_user_name_available: 
     if is_field_reqiured:
         st.error("All fields are required.")
 
+@st.dialog("update_form")
+def update_dialog():
+    username = st.text_input("Username", key="update_username", value=st.session_state.username)
+    email = st.text_input("Email", value=st.session_state.useremail)
+    display_name = st.text_input("Display Name", value=st.session_state.user_name)
+
+    if st.button("Update", icon="📲", icon_position="right", use_container_width=True):
+        if not username or not email:
+            st.error("All fields are required.")
+        elif not is_user_name_available(username) and username != st.session_state.username:
+            st.error("Username is already taken.")
+        else:
+            if username == st.session_state.username:
+                username = None
+            if email == st.session_state.useremail:
+                email = None
+            if display_name == st.session_state.user_name:
+                display_name = None
+            if username == None and email == None and display_name == None:
+                st.error("No changes found.")
+            else:
+                user_db.update_user(st.session_state.user_id, display_name, email, username)
+                st.success("Updated successfully!")
+                st.session_state.clear()
+                st.stop()
+                st.rerun()
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "username" not in st.session_state:
     st.session_state.username = ""
+if "useremail" not in st.session_state:
+    st.session_state.useremail = ""
+if "user_name" not in st.session_state:
+    st.session_state.user_name = ""
 if "user_id" not in st.session_state:
     st.session_state.user_id = ""
 if "auth_tab" not in st.session_state:
@@ -40,6 +71,8 @@ if user_id is not None:
     st.session_state.user_id = user_id
     user_details = user_db.get_user(user_id)
     st.session_state.authenticated = True
+    st.session_state.useremail = user_details["email"]
+    st.session_state.username = user_details["username"]
     st.session_state.user_name = user_details["display_name"] if user_details["display_name"] else user_details["username"]
 
 if not st.session_state.authenticated:
@@ -49,7 +82,7 @@ if not st.session_state.authenticated:
         "",
         ["Login", "Register"],
         default=st.session_state.auth_tab,
-        key="auth_tab"
+        key="authentication_tab"
     )
 
     if selected_tab == "Login":
@@ -78,6 +111,7 @@ if not st.session_state.authenticated:
                     login_message_dialog(is_invalid_details=True)
 
     elif selected_tab == "Register":
+        st.session_state.auth_tab = "Register"
         with st.form("register_form"):
             username = st.text_input("Username", key="register_username")
             email = st.text_input("Email")
@@ -102,3 +136,19 @@ if not st.session_state.authenticated:
                     st.session_state.auth_tab = "Login"
                     st.stop()
                     st.rerun()
+else:
+    st.markdown(f"""
+        <body>
+            <h4>Name: </h4><p>{st.session_state.user_name}</p>
+            <h4>Email: </h4><p>{st.session_state.useremail}</p>
+            <h4>User name: </h4><p>{st.session_state.username}</p>
+        </body>
+    """, unsafe_allow_html=True)
+    if st.button("Update"):
+        update_dialog()
+
+with st.sidebar:
+    if st.button("Logout", use_container_width=True):
+        clear_session()
+        st.session_state.clear()
+        st.rerun()
